@@ -1,16 +1,11 @@
 import { Router } from "express";
+import { UserController } from "../resources/user/user.controllers";
 
 const userRouter = Router();
-
+const userController = new UserController();
 // POST
-userRouter.post('/signin', (request, response) =>{
-  console.log('enviado')
-  return response.send('Entrando com o usuário')
-})
-userRouter.post('/signup', (request, response) =>{
-  console.log('enviado')
-  return response.send('Criando o usuário')
-})
+userRouter.post('/signin', userController.signin)
+userRouter.post('/signup', userController.signup)
 
 // PUT
 
