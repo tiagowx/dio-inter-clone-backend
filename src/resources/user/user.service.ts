@@ -5,6 +5,8 @@ import { User } from "../../entity/User";
 
 import { UserSignIn } from "./ditos/user.signin.ditos";
 import { UserSignUp } from "./ditos/user.signup.ditos";
+import AppError from "../../shared/error/AppError";
+import { response } from "express";
 
 export default class UserService {
 
@@ -17,9 +19,10 @@ export default class UserService {
     const existUser = await userRepository.findOne({where: {email,password}})
 
     if (!existUser) {
-      return null;
+      throw new AppError('Usuário não encontrado', 401);
     }
 
+    return existUser;
   }
 
 
