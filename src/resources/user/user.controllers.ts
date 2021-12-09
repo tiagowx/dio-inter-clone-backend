@@ -13,8 +13,10 @@ export class UserController {
 
     return res.status(200).send(user);
   }
-  
+
   async signup(req: Request, res: Response) {
-    return res.send('criando usuário')
+    const userService = new UserService();
+    const users = await userService.signup(req.body);
+    return res.status(201).send(users)
   }
 }
