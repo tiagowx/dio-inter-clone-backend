@@ -20,6 +20,9 @@ export class User{
   
   @Column()
   accountDate: number;
+
+  @Column()
+  accountDigit:number;
   
   @Column()
   wallet: number;
