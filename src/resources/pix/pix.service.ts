@@ -1,83 +1,112 @@
-import { getRepository } from "typeorm";
-import md5 from 'crypto-js/md5';
-import { sign } from 'jsonwebtoken';
+import {getRepository} from "typeorm"
+import {encodeKey, decodeKey} from '../../utils/pix';
 
-import { User } from "../../entity/User";
+import {User} from '../../entity/User';
+import {Pix} from '../../entity/Pix';
+import AppError from '../../shared/error/AppError';
 
-import authConfig from '../../config/auth';
 
-import { UserSignIn } from "./ditos/user.signin.ditos";
-import { UserSignUp } from "./ditos/user.signup.ditos";
-import AppError from "../../shared/error/AppError";
+export default class PixService {
 
-export default class UserService {
 
-  async signin(user: UserSignIn) {
+   async request(value: number, user: Partial<User>) {
+    const pixRepository = getRepository(Pix); 
+
     const userRepository = getRepository(User);
+    const currentUser = await userRepository.findOne({where: {id: user.id}})
 
-    const { email, password } = user;
-    const passwordHash = md5(password).toString();
+    const requestData = {
+        requestingUser: currentUser,
+        value,
+        status: 'open',
 
-    const existUser = await userRepository.findOne({ where: { email, password: passwordHash } })
-
-    if (!existUser) {
-      throw new AppError('Usuário não encontrado', 401);
     }
+    const register = await pixRepository.save(requestData);
 
-    const { secret, expiresIn } = authConfig.jwt;
+    const key = encodeKey(user.id || '', value, register.id)
 
-    const token = sign({
-      firstName: existUser.firstName,
-      lastName: existUser.lastName,
-      accountNumber: existUser.accountNumber,
-      accountDigit: existUser.accountDigit,
-      wallet: existUser.wallet
-    }, secret, {
-      subject: existUser.id,
-      expiresIn,
-    });
+    return key
+   }
 
-    // @ts-expect-error ignora
-    delete existUser.password
+   async pay(key: string, user: Partial<User>) {
+       const keyDecoded = decodeKey(key)
 
-    return { accessToken: token }
-  }
+       if(keyDecoded.userId === user.id){
+           throw new AppError("Não é possivel receber o PIX do mesmo usuário",401)
+       }
 
-  async signup(user: UserSignUp) {
-    const userRepository = getRepository(User);
+       const pixRepository = getRepository(Pix); 
+       const userRepository = getRepository(User);
 
-    const existUser = await userRepository.findOne({where: {email: user.email}})
+       const requestingUser = await userRepository.findOne({where: {id: keyDecoded.userId}})
+       const payingUser = await userRepository.findOne({where: {id: user.id}})
 
-    if(existUser){
-      throw new AppError('Já existe um usuário cadastrado com esse email', 401);
-    }
+       if(payingUser?.wallet && payingUser.wallet < Number(keyDecoded.value)){
+           throw new AppError('Não há saldo suficiente para fazer o pagamento', 401)
+       }
+ 
+       if(!requestingUser || !payingUser){
+        throw new AppError('Não encontramos os clientes da transação, gere uma nova chave', 401)
+       }
+       
+       
+       requestingUser.wallet = Number(requestingUser?.wallet) + Number(keyDecoded.value);
+       await userRepository.save(requestingUser)
+   
+        payingUser.wallet = Number(payingUser?.wallet) - Number(keyDecoded.value);
+        await userRepository.save(payingUser)
+        
+        
+        const pixTransaction = await pixRepository.findOne({where: {id: keyDecoded.registerId, status: 'open'}})
 
-    const userData = {
-        ...user,
-        password: md5(user.password).toString(),
-        wallet: 0,
-        accountNumber: Math.floor(Math.random() * 999999),
-        accountDigit: Math.floor(Math.random() * 99)
-    }
+       if(!pixTransaction){
+        throw new AppError('Chave inválida par pagamento', 401)
+       }
 
-    const userCreate =  await userRepository.save(userData);
+       pixTransaction.status = 'close';
+       pixTransaction.payingUser = payingUser
 
-    const { secret, expiresIn } = authConfig.jwt;
-    
-    const token = sign({
-        firstName: user.firstName,
-        lastName: user.lastName,
-        accountNumber: userData.accountNumber,
-        accountDigit: userData.accountDigit,
-        wallet: userData.wallet
-    }, secret, {
-        subject: userCreate.id,
-        expiresIn,
-    });
+       await pixRepository.save(pixTransaction)
 
-    
-    return {accessToken: token}
- }
+       return {mag: 'Pagamento efetudo com sucesso'}
+   }
 
+   async transactions(user: Partial<User>) {
+    const pixRepository = getRepository(Pix); 
+   
 
+    const pixReceived = await (await pixRepository.find({where: {requestingUser: user.id, status: 'close'}, relations: ['payingUser']}))
+
+    const pixPaying = await pixRepository.find({where: {payingUser: user.id, status: 'close'}, relations: ['requestingUser']})
+
+    const received = pixReceived.map(transaction => ({
+        value: transaction.value, 
+        user: {
+            firstname: transaction.payingUser.firstName,
+            lastName: transaction.payingUser.lastName,
+        },
+        updatedAt: transaction.updatedAt,
+        type: 'received'
+    }));
+
+    const paying = pixPaying.map(transaction => ({
+        value: transaction.value, 
+        user: {
+            firstname: transaction.requestingUser.firstName,
+            lastName: transaction.requestingUser.lastName,
+        },
+        updatedAt: transaction.updatedAt,
+        type: 'paid'
+    }));
+
+    const allTransactions = received.concat(paying);
+
+    allTransactions.sort(function (a, b) {
+        const dateA = new Date(a.updatedAt).getTime();
+        const dateB = new Date(b.updatedAt).getTime();
+        return dateA < dateB ? 1 : -1;  
+      });
+
+    return allTransactions
+   }
 }
