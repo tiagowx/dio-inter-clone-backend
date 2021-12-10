@@ -46,38 +46,52 @@ export default class UserService {
   async signup(user: UserSignUp) {
     const userRepository = getRepository(User);
 
-    const existUser = await userRepository.findOne({where: {email: user.email}})
+    const existUser = await userRepository.findOne({ where: { email: user.email } })
 
-    if(existUser){
+    if (existUser) {
       throw new AppError('Já existe um usuário cadastrado com esse email', 401);
     }
 
     const userData = {
-        ...user,
-        password: md5(user.password).toString(),
-        wallet: 0,
-        accountNumber: Math.floor(Math.random() * 999999),
-        accountDigit: Math.floor(Math.random() * 99)
+      ...user,
+      password: md5(user.password).toString(),
+      wallet: 5000,
+      accountNumber: Math.floor(Math.random() * 999999),
+      accountDigit: Math.floor(Math.random() * 99)
     }
 
-    const userCreate =  await userRepository.save(userData);
+    const userCreate = await userRepository.save(userData);
 
     const { secret, expiresIn } = authConfig.jwt;
-    
+
     const token = sign({
-        firstName: user.firstName,
-        lastName: user.lastName,
-        accountNumber: userData.accountNumber,
-        accountDigit: userData.accountDigit,
-        wallet: userData.wallet
+      firstName: user.firstName,
+      lastName: user.lastName,
+      accountNumber: userData.accountNumber,
+      accountDigit: userData.accountDigit,
+      wallet: userData.wallet
     }, secret, {
-        subject: userCreate.id,
-        expiresIn,
+      subject: userCreate.id,
+      expiresIn,
     });
 
-    
-    return {accessToken: token}
- }
+
+    return { accessToken: token }
+  }
 
 
+  async me(user: Partial<User>) {
+    const userRepository = getRepository(User);
+    const currentUser = await userRepository.findOne({ where: { id: user.id } })
+
+    if (!currentUser) {
+      throw new AppError('Usuário não econtrado', 401);
+    }
+
+    // @ts-expect-error ignora
+    delete currentUser.password
+
+    return currentUser;
+
+  }
 }
