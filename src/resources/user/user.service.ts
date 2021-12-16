@@ -76,6 +76,7 @@ export default class UserService {
     });
 
 
+    console.log("ok")
     return { accessToken: token }
   }
 
